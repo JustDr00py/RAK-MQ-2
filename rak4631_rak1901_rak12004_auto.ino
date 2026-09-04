@@ -47,6 +47,7 @@
 #define POLL_INTERVAL_MAX_MS   3600000UL     // 1 hour hard ceiling
 #define UPLINK_INTERVAL_MIN_MS   30000UL     // hard floor, protects LoRaWAN airtime/fair-use
 #define UPLINK_INTERVAL_MAX_MS 86400000UL    // 24 hour hard ceiling
+#define REJOIN_RETRY_INTERVAL_MS  60000UL    // retry join() this often while not joined (e.g. after a gateway outage)
 
 uint32_t g_pollIntervalMs   = 60000;     // 60s default
 uint32_t g_uplinkIntervalMs = 600000;    // 10 min default heartbeat
@@ -488,31 +489,40 @@ void tickCallback(void *data)
 {
     static uint32_t lastPollMillis = 0;
     static uint32_t lastUplinkMillis = 0;
+    static uint32_t lastJoinAttemptMillis = 0;
     static bool firstRun = true;
     static bool wasAlert = false;
+
+    uint32_t now = millis();
+
+    if (!api.lorawan.njs.get())
+    {
+        // Not joined (never joined yet, or lost the session after an
+        // outage). Actively retry rather than just waiting - a single
+        // failed join at boot (e.g. gateway briefly down after a power
+        // outage) would otherwise leave the device stuck indefinitely even
+        // once the network is reachable again. Retries are throttled to
+        // REJOIN_RETRY_INTERVAL_MS rather than every tick, both to avoid
+        // spamming join attempts and because sensor polling is paused here
+        // too - no point hammering the I2C sensors with nowhere to send.
+        if ((now - lastJoinAttemptMillis) >= REJOIN_RETRY_INTERVAL_MS)
+        {
+            Serial.println("Not joined to LoRaWAN - attempting (re)join...");
+            api.lorawan.join();
+            lastJoinAttemptMillis = now;
+        }
+        return;
+    }
 
     if (mq2_calibrating)
     {
         return; // recalibration in progress (see calibrateMQ2()) - don't touch the I2C sensor concurrently
     }
 
-    uint32_t now = millis();
-
     if (firstRun || (now - lastPollMillis) >= g_pollIntervalMs)
     {
         pollSensors();
         lastPollMillis = now;
-
-        if (!api.lorawan.njs.get())
-        {
-            static bool warnedNotJoined = false;
-            if (!warnedNotJoined)
-            {
-                Serial.println("Not joined to LoRaWAN yet - deferring uplink until joined (retrying).");
-                warnedNotJoined = true;
-            }
-            return; // firstRun stays true - retries every tick until joined, then sends immediately
-        }
 
         bool alertJustCleared = wasAlert && !g_lastAlert;
 
