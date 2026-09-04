@@ -99,6 +99,17 @@ bool mq2_calibration_stable = false;
 // explicitly requested via the downlink "recalibrate" flag - at which
 // point YOU are responsible for making sure the air is actually clean
 // before triggering it.
+//
+// History: an earlier version of this write (offset 0x0000) coincided
+// with the device's default BLE advertising breaking (stopped appearing
+// in WisToolBox). BLE was restored by explicitly calling
+// api.ble.settings.blemode(RAK_BLE_UART_MODE) + api.ble.uart.start() in
+// setup() (see below) rather than relying on RUI3's default auto-start
+// behavior - notably, BLE came back WITHOUT reverting this flash write or
+// erasing anything, which is decent evidence this offset itself wasn't
+// the actual cause. Not airtight proof, but reasonable grounds to
+// re-enable this. If BLE issues recur, this offset is the first thing to
+// suspect again.
 #define R0_FLASH_OFFSET   0x0000
 #define R0_FLASH_MAGIC    0x52304D32UL  // "R0M2" - identifies valid stored data, distinguishes from blank/erased flash
 
@@ -538,6 +549,17 @@ void setup()
     }
 
     Serial.println("RAK4631 + RAK1901 (SHTC3) + RAK12004 (MQ-2) - US915, sub-band 2");
+
+    // --- Explicit BLE UART service start (recovery fix) ---
+    // Default BLE advertising broke on this unit after a prior bad flash
+    // write (see note above). This matches RAK's own default/factory app
+    // pattern (BLE UART mode + api.ble.uart.start()) rather than the
+    // generic api.ble.advertise.start(), which didn't restore WisToolBox
+    // visibility. Confirmed working.
+    Serial6.begin(115200, RAK_AT_MODE);
+    api.ble.settings.blemode(RAK_BLE_UART_MODE);
+    api.ble.uart.start(0);
+    Serial.println("BLE UART start() called");
 
     // --- I2C init ---
     Wire.begin();
