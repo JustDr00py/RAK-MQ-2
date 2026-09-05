@@ -52,19 +52,22 @@ function encodeDownlink(input) {
 
 /**
  * ChirpStack v4 decodeUplink function
- * Matches the 10-byte payload produced by the RAK4631 + RAK1901 (SHTC3) +
- * RAK12004 (MQ-2) sketch, sent on LoRaWAN FPort 2.
+ * Matches the 5-byte payload produced by the RAK4631 + RAK12004 (MQ-2)
+ * sketch, sent on LoRaWAN FPort 2.
  *
- * Payload layout (10 bytes):
- * [0-1] temperature * 100   (int16, signed, big-endian)   -> deg C
- * [2-3] humidity * 100      (uint16, big-endian)           -> % RH
- * [4-5] methane approx ppm * 10 (uint16, big-endian)       -> ppm (LPG-curve approximation, see sketch notes)
- * [6]   shtc3_ok            (uint8, 1 = sensor read OK, 0 = fail)
- * [7]   mq2_ok              (uint8, 1 = sensor read OK, 0 = fail)
- * [8]   mq2_alert          (uint8, 1 = methane_ppm_approx >= the configured
+ * Temperature/humidity (RAK1901/SHTC3) is no longer transmitted - that
+ * module reads far hotter than true ambient regardless of mounting
+ * location (board/enclosure heat buildup, not simple proximity to the
+ * MQ-2) and isn't trustworthy as room data. A separate Milesight EM320-TH
+ * covers room temp/humidity in this deployment instead.
+ *
+ * Payload layout (5 bytes):
+ * [0-1] methane approx ppm * 10 (uint16, big-endian)       -> ppm (LPG-curve approximation, see sketch notes)
+ * [2]   mq2_ok              (uint8, 1 = sensor read OK, 0 = fail)
+ * [3]   mq2_alert          (uint8, 1 = methane_ppm_approx >= the configured
  *       ppm alert threshold, 0 = normal - evaluated in software each poll,
  *       not by the sensor's hardware comparator)
- * [9]   mq2_calibration_stable (uint8, 1 = R0 settled within tolerance during
+ * [4]   mq2_calibration_stable (uint8, 1 = R0 settled within tolerance during
  *       startup calibration, 0 = never stabilized - ppm should be treated as
  *       unreliable/ignored when this is 0, even if mq2_ok is 1)
  */
@@ -81,37 +84,22 @@ function decodeUplink(input) {
         };
     }
 
-    if (bytes.length !== 10) {
+    if (bytes.length !== 5) {
         return {
             data: {},
-            errors: ["Unexpected payload length: " + bytes.length + ", expected 10 bytes"],
+            errors: ["Unexpected payload length: " + bytes.length + ", expected 5 bytes"],
         };
     }
 
-    // --- Temperature (int16, signed, big-endian) ---
-    var tempRaw = (bytes[0] << 8) | bytes[1];
-    if (tempRaw & 0x8000) {
-        tempRaw = tempRaw - 0x10000; // sign-extend to negative
-    }
-    var temperature = tempRaw / 100.0;
-
-    // --- Humidity (uint16, big-endian) ---
-    var humRaw = (bytes[2] << 8) | bytes[3];
-    var humidity = humRaw / 100.0;
-
     // --- Methane approx ppm (uint16, big-endian) ---
-    var ppmRaw = (bytes[4] << 8) | bytes[5];
+    var ppmRaw = (bytes[0] << 8) | bytes[1];
     var methane_ppm_approx = ppmRaw / 10.0;
 
     // --- Status flags ---
-    var shtc3_ok = bytes[6] === 1;
-    var mq2_ok = bytes[7] === 1;
-    var mq2_alert = bytes[8] === 1;
-    var mq2_calibration_stable = bytes[9] === 1;
+    var mq2_ok = bytes[2] === 1;
+    var mq2_alert = bytes[3] === 1;
+    var mq2_calibration_stable = bytes[4] === 1;
 
-    if (!shtc3_ok) {
-        warnings.push("SHTC3 (RAK1901) reported a failed read on this uplink");
-    }
     if (!mq2_ok) {
         warnings.push("MQ-2 (RAK12004) reported a failed read on this uplink");
     }
@@ -121,10 +109,7 @@ function decodeUplink(input) {
 
     return {
         data: {
-            temperature: temperature,       // deg C
-            humidity: humidity,             // % RH
             methane_ppm_approx: methane_ppm_approx, // ppm, LPG-curve approximation - see sketch notes
-            shtc3_ok: shtc3_ok,
             mq2_ok: mq2_ok,
             mq2_alert: mq2_alert,
             mq2_calibration_stable: mq2_calibration_stable,
