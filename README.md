@@ -9,7 +9,6 @@ LoRaWAN sensor node built on RAK WisBlock: combustible gas approximation
 |---|---|
 | RAK4631 | WisBlock Core (nRF52840 + SX1262, RUI3 firmware) |
 | RAK19007 | WisBlock Base Board 2nd Gen |
-| RAK1901 | Temperature/humidity sensor (Sensirion **SHTC3** chip) - physically present, read internally, **not transmitted** (see Known limitations) |
 | RAK12004 | Gas sensor (Winsen **MQ-2**, read via onboard ADC121C021 over I2C) |
 | 2x 18650 Li-ion (optional) | Battery backup / UPS - see Power notes below |
 
@@ -51,9 +50,6 @@ that rail may not come up.
 
 2. **Install required libraries** (Library Manager, `Ctrl+Shift+I` /
    `Cmd+Shift+I`):
-   - **`SparkFun SHTC3 Humidity and Temperature Sensor Library`** - for
-     RAK1901. (Not Adafruit_SHT31 - that's a different chip and won't
-     talk to this sensor correctly.)
    - **RAK-MQx library** (search "RAK-MQx" or "ADC121C021") - for
      RAK12004. Provides the `ADC121C021` class used in the sketch.
    - `Wire.h` is built into the Arduino core - no install needed.
@@ -145,24 +141,23 @@ polling is paused while disconnected.
   into a WisBlock digital input module (e.g. RAK13001) if you want that
   alarm relayed over LoRaWAN. This sketch's readings are supplementary
   trend/monitoring data, not a safety system.
-- **Temperature/humidity (RAK1901) is not transmitted.** It reads
-  meaningfully hotter than true ambient - confirmed ~20F off against a
-  separate Milesight EM320-TH in the same space - regardless of which
-  module slot it's mounted in, pointing to board/enclosure heat buildup
-  rather than simple proximity to the MQ-2. It was previously used to
-  correct the gas reading (removed for the same reason - a biased input
-  was making that correction actively wrong) and then reported standalone
-  for its own value, but with a confirmed ~20F bias it isn't trustworthy
-  as room data either. It's still physically wired and read internally
-  (logged to Serial), just not included in the LoRaWAN payload/decoder.
-  A separate Milesight EM320-TH covers room temp/humidity in this
-  deployment instead.
+- **A RAK1901 (temperature/humidity, Sensirion SHTC3) was tried and
+  removed entirely** - not just from the payload, but from the sketch and
+  its library too. It read meaningfully hotter than true ambient
+  (confirmed ~20F off against a separate Milesight EM320-TH in the same
+  space) regardless of which module slot it was mounted in, pointing to
+  board/enclosure heat buildup rather than simple proximity to the MQ-2.
+  It was first used to correct the gas reading, then kept briefly as
+  standalone environmental data once that correction was disabled, but a
+  confirmed ~20F bias made it untrustworthy for either purpose, so it was
+  pulled from the hardware and code. A separate Milesight EM320-TH covers
+  room temp/humidity in this deployment instead.
 
 ## Files
 
 | File | Purpose |
 |---|---|
-| `rak4631_rak1901_rak12004.ino` | Main sketch |
+| `rak4631_rak12004.ino` | Main sketch |
 | `chirpstack_v4_decoder.js` | ChirpStack v4 codec (`decodeUplink` + `encodeDownlink`) |
 | `downlinks.md` | Downlink command reference and examples |
 | `i2c_scanner.ino` | Standalone diagnostic - lists all I2C addresses on the bus |
