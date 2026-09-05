@@ -1,8 +1,7 @@
-# RAK4631 Gas & Environmental Monitor
+# RAK4631 Gas Monitor
 
-LoRaWAN sensor node built on RAK WisBlock: temperature/humidity (RAK1901)
-+ combustible gas approximation (RAK12004, MQ-2), reporting over
-ChirpStack v4 on US915 sub-band 2.
+LoRaWAN sensor node built on RAK WisBlock: combustible gas approximation
+(RAK12004, MQ-2), reporting over ChirpStack v4 on US915 sub-band 2.
 
 ## Hardware
 
@@ -10,7 +9,7 @@ ChirpStack v4 on US915 sub-band 2.
 |---|---|
 | RAK4631 | WisBlock Core (nRF52840 + SX1262, RUI3 firmware) |
 | RAK19007 | WisBlock Base Board 2nd Gen |
-| RAK1901 | Temperature/humidity sensor (Sensirion **SHTC3** chip) |
+| RAK1901 | Temperature/humidity sensor (Sensirion **SHTC3** chip) - physically present, read internally, **not transmitted** (see Known limitations) |
 | RAK12004 | Gas sensor (Winsen **MQ-2**, read via onboard ADC121C021 over I2C) |
 | 2x 18650 Li-ion (optional) | Battery backup / UPS - see Power notes below |
 
@@ -88,7 +87,10 @@ AT+APPKEY=<32 hex chars>
 This sketch is configured for **US915, sub-band 2** (channels 8-15 +
 500kHz channel 65) and **LoRaWAN Class C** (continuous RX, so downlink
 config changes land immediately - appropriate since this is
-mains-powered, not battery-primary).
+mains-powered, not battery-primary). If the device isn't joined (never
+joined yet, or lost its session after an outage), it actively retries
+`join()` every 60 seconds rather than waiting indefinitely - sensor
+polling is paused while disconnected.
 
 ## ChirpStack v4 setup
 
@@ -101,15 +103,26 @@ mains-powered, not battery-primary).
 
 ## Calibration
 
-- **First use / first flash:** the sketch runs a full calibration on
-  boot - a 5-minute warm-up followed by repeated sampling until the
-  sensor's readings stabilize (or it times out and disables gas
-  reporting for that boot, which usually means a wiring/power/hardware
-  issue worth investigating rather than a timing fluke).
-- **Ordinary reboots** load the last validated calibration from flash
-  instead of recalibrating blind - this avoids the device accidentally
-  calibrating its "clean air" baseline against contaminated air if it
-  happens to reboot during real gas/cooking activity.
+- **The sketch calibrates on every boot** - a 5-minute warm-up followed
+  by repeated sampling until the sensor's readings stabilize (or it
+  times out and disables gas reporting for that boot, which usually
+  means a wiring/power/hardware issue worth investigating rather than a
+  timing fluke). This runs on every reboot, not just first use.
+- **Ordinary reboots load a previously-validated R0 from flash** instead
+  of recalibrating blind, skipping the 5-minute warm-up. Full calibration
+  only runs on genuine first-use (no valid stored value yet) or when
+  explicitly requested via downlink.
+- **History:** an earlier version of this write (flash offset `0x0000`)
+  coincided with RUI3's default BLE advertising breaking (device stopped
+  appearing in WisToolBox). BLE was restored via an explicit
+  `api.ble.settings.blemode(RAK_BLE_UART_MODE)` + `api.ble.uart.start()`
+  call in `setup()` (matching RAK's own default app pattern) rather than
+  relying on default auto-advertise - notably, BLE came back *without*
+  reverting the flash write or erasing anything, which is decent (not
+  airtight) evidence the offset itself wasn't the actual cause. Flash
+  persistence was re-enabled on that basis. If BLE issues recur, this
+  offset is the first thing to suspect again - confirm
+  `AT+DEUI=?` / `AT+APPEUI=?` / `AT+APPKEY=?` are still intact if so.
 - **To force a fresh calibration** (e.g., after physical hardware
   changes, or periodic recalibration), send downlink `01` on FPort 10.
   **The air must genuinely be clean when you do this** - see
@@ -132,11 +145,18 @@ mains-powered, not battery-primary).
   into a WisBlock digital input module (e.g. RAK13001) if you want that
   alarm relayed over LoRaWAN. This sketch's readings are supplementary
   trend/monitoring data, not a safety system.
-- Temperature/humidity correction on the gas reading is **disabled** -
-  the RAK1901, mounted near the RAK12004, reads meaningfully hotter than
-  true ambient due to heat from the MQ-2's own heater, which made the
-  correction actively wrong. Temp/humidity are still reported for their
-  own value as environmental data.
+- **Temperature/humidity (RAK1901) is not transmitted.** It reads
+  meaningfully hotter than true ambient - confirmed ~20F off against a
+  separate Milesight EM320-TH in the same space - regardless of which
+  module slot it's mounted in, pointing to board/enclosure heat buildup
+  rather than simple proximity to the MQ-2. It was previously used to
+  correct the gas reading (removed for the same reason - a biased input
+  was making that correction actively wrong) and then reported standalone
+  for its own value, but with a confirmed ~20F bias it isn't trustworthy
+  as room data either. It's still physically wired and read internally
+  (logged to Serial), just not included in the LoRaWAN payload/decoder.
+  A separate Milesight EM320-TH covers room temp/humidity in this
+  deployment instead.
 
 ## Files
 
