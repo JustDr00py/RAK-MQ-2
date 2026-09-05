@@ -28,7 +28,7 @@ JSON codec form), set FPort to `10`, and paste the hex byte below.
 
 | Hex | Command | Effect |
 |---|---|---|
-| `01` | Recalibrate | Triggers a fresh R0 calibration immediately (blocking on the device - the 5 minute warm-up + stability sampling runs before it returns). On success, the new R0 is saved to flash and used from then on, including across future reboots. |
+| `01` | Recalibrate | Triggers a fresh R0 calibration immediately (blocking on the device - the 5 minute warm-up + stability sampling runs before it returns). Applies for the current session only - it does **not** persist across a reboot; the device recalibrates fresh on every boot regardless. (An earlier version persisted R0 to flash; it was removed after it corrupted RUI3's BLE config - see README.) |
 | `02` | Reset to defaults | Resets poll interval, uplink heartbeat interval, and alert threshold back to their compiled-in defaults (60s / 600s / 2000ppm). Does **not** touch calibration/R0. |
 
 ### ⚠️ Before sending `01`
